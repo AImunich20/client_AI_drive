@@ -18,12 +18,27 @@
       background: rgba(255,255,255,0.8); padding: 10px; border: none;
       font-size: 16px; cursor: pointer;
     }
+    #alertBox {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 0, 0, 0.8);
+      color: white;
+      padding: 10px 20px;
+      font-size: 20px;
+      border-radius: 10px;
+      z-index: 1000;
+      display: none;
+    }
   </style>
 </head>
 <body>
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas"></canvas>
   <button id="switchBtn">🔄 เปลี่ยนกล้อง</button>
+
+  <div id="alertBox"></div>
 
   <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
   <script>
@@ -32,6 +47,7 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const switchBtn = document.getElementById('switchBtn');
+    const alertBox = document.getElementById('alertBox');
 
     let currentStream = null;
     let videoDevices = [];
@@ -128,6 +144,43 @@
         alert("ไม่สามารถสลับกล้องได้ – พบเพียงกล้องเดียว");
       }
     });
+
+    // รับสถานะจาก server แล้วแสดงข้อความพร้อมเล่นเสียง beep
+    socket.on("status", data => {
+      if (data.clientId !== clientId) return;
+
+      const statuses = ["drowsy", "yawning", "microsleep"];
+      const alerts = statuses.filter(key => data[key]);
+
+      if (alerts.length > 0) {
+        const message = alerts.map(a => a.toUpperCase() + " DETECTED").join(", ");
+        showAlert(message);
+        playBeep();
+      }
+    });
+
+    function showAlert(message) {
+      alertBox.innerText = message;
+      alertBox.style.display = "block";
+      clearTimeout(alertBox.timeout);
+      alertBox.timeout = setTimeout(() => {
+        alertBox.style.display = "none";
+      }, 3000);
+    }
+
+    function playBeep() {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = ctx.createOscillator();
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(440, ctx.currentTime);
+      oscillator.connect(ctx.destination);
+      oscillator.start();
+
+      setTimeout(() => {
+        oscillator.stop();
+        ctx.close();
+      }, 200);
+    }
 
     async function init() {
       if (isIOS) {
