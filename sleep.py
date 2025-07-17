@@ -195,7 +195,7 @@ def AI_sleeep(frame, mp_face_mesh):
         (255, 255, 0),
         2
     )
-    cv2.imshow("Face, Eye & Yawn Detection", annotated_frame)
+    # cv2.imshow("Face, Eye & Yawn Detection", annotated_frame)
 
     face_mesh.close()
     return final_status
