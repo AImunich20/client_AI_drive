@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Camera Stream (Smart Switch)</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0; height: 100%; background: black; overflow: hidden;
+    }
+    #video, #canvas {
+      position: fixed; top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      object-fit: cover;
+    }
+    #canvas { display: none; }
+    #switchBtn {
+      position: fixed; top: 10px; right: 10px;
+      z-index: 10;
+      background: rgba(255,255,255,0.8); padding: 10px; border: none;
+      font-size: 16px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  <button id="switchBtn">🔄 เปลี่ยนกล้อง</button>
+
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+  <script>
+    const socket = io();
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const switchBtn = document.getElementById('switchBtn');
+
+    let currentStream = null;
+    let videoDevices = [];
+    let currentDeviceIndex = 0;
+    let usingFrontCamera = true;
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    // สร้าง clientId ถาวร
+    const clientId = localStorage.getItem("clientId") || (() => {
+      const id = 'client-' + Math.random().toString(36).substring(2, 10);
+      localStorage.setItem("clientId", id);
+      return id;
+    })();
+
+    function sendFrame() {
+      if (!currentStream) return;
+
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => {
+        if (blob) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const arrayBuffer = reader.result;
+            socket.emit('frame', {
+              buffer: arrayBuffer,
+              clientId: clientId
+            });
+          };
+          reader.readAsArrayBuffer(blob);
+        }
+      }, 'image/jpeg', isIOS ? 0.01 : 0.5);
+
+      setTimeout(sendFrame, 50); // ~10 fps
+    }
+
+    function setCanvasSize() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
+    async function startCameraIOS() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+      const constraints = {
+        video: { facingMode: usingFrontCamera ? "user" : "environment" }
+      };
+      try {
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = currentStream;
+        video.onloadedmetadata = () => {
+          video.play();
+          setCanvasSize();
+          sendFrame();
+        };
+      } catch (err) {
+        alert("ไม่สามารถเปิดกล้องบน iOS: " + err.message);
+      }
+    }
+
+    async function startCamera(deviceId = null) {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+      const constraints = {
+        video: deviceId ? { deviceId: { exact: deviceId } } : true
+      };
+      try {
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = currentStream;
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = devices.filter(device => device.kind === 'videoinput');
+        if (!videoDevices[currentDeviceIndex]) currentDeviceIndex = 0;
+
+        video.onloadedmetadata = () => {
+          video.play();
+          setCanvasSize();
+          sendFrame();
+        };
+      } catch (err) {
+        alert("ไม่สามารถเปิดกล้อง: " + err.message);
+      }
+    }
+
+    switchBtn.addEventListener('click', async () => {
+      if (isIOS) {
+        usingFrontCamera = !usingFrontCamera;
+        await startCameraIOS();
+      } else if (videoDevices.length > 1) {
+        currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
+        await startCamera(videoDevices[currentDeviceIndex].deviceId);
+      } else {
+        alert("ไม่สามารถสลับกล้องได้ – พบเพียงกล้องเดียว");
+      }
+    });
+
+    async function init() {
+      if (isIOS) {
+        await startCameraIOS();
+      } else {
+        await startCamera();
+      }
+    }
+
+    init().catch(err => {
+      alert("เกิดข้อผิดพลาดขณะเริ่มกล้อง: " + err.message);
+    });
+  </script>
+</body>
+</html>
